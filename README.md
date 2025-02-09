@@ -1,0 +1,1 @@
+This repository contains code that allows automatic reservation for restaurants.
