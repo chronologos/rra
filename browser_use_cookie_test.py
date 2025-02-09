@@ -2,6 +2,8 @@ import traceback
 import json
 import asyncio
 import os
+import schedule
+import time
 from pathlib import Path
 from typing import Optional
 from langchain_openai import ChatOpenAI
@@ -43,22 +45,36 @@ def create_browser_config(cookies_file: str) -> BrowserContextConfig:
     )
 
 
-async def run_search(context: BrowserContext) -> None:
+async def run_search(context: BrowserContext) -> bool:
     """Execute the search task using the browser agent."""
     try:
+        # task = (
+        #     'Book a table at \"Han Dynasty Long Island City\"'
+        #     'At the reservation booking website, search for the restaurant name'
+        #     'Click onto the restaurant page to show all availabilities'
+        #     'Then, enter the details as follow: Feb 12 5pm local time, party size: 2 people'
+        # )
         task = (
-            'Book a table at \"Han Dynasty Long Island City\"'
+            'Book a table at \”Carbone\” in NYC (Greenwich Village)'
             'At the reservation booking website, search for the restaurant name'
             'Click onto the restaurant page to show all availabilities'
-            'Then, enter the details as follow: Feb 12 5pm local time, party size: 2 people'
+            'Then, enter the details as follow: Mar 11 at 7pm local time, party size: 2 people'
         )
+        # task = ('go to google.com')
         agent = Agent(
             browser_context=context,
             task=task,
             llm=ChatOpenAI(model="gpt-4o"),
         )
         result = await agent.run()
-        print(result)
+        print(f"Result type: {type(result)}")  # Print the type
+        print(f"Result value: {result}")
+        if result.is_done():
+            print("Task completed successfully.")
+            return True
+        else:
+            print("Task failed to complete.")
+            return False
     except Exception as e:
         print("Error occurred during search:")
         print(traceback.format_exc())
@@ -75,15 +91,45 @@ async def main() -> None:
     config = create_browser_config(cookies_file)
     browser = Browser()
     context = BrowserContext(browser=browser, config=config)
-
+    retries = 0
     try:
-        await run_search(context)
+        success = await run_search(context)
+        while not success and retries < 3:
+            await context.reset_context()
+            retries += 1
+            print(f"Retrying... ({retries})")
+            await asyncio.sleep(5)
+            await run_search(context)
     finally:
         await browser.close()
 
+
+def run_at_time(time_str: Optional[str] = None):
+    """
+    Schedule and run the main function.
+    Args:
+        time_str: Time string in 'HH:MM' format (24-hour)
+    """
+    if time_str:
+        # Schedule for specific time
+        schedule.every().day.at(time_str).do(lambda: asyncio.run(main()))
+        print(f"Scheduled to run at {time_str}")
+
+        while True:
+            schedule.run_pending()
+            time.sleep(1)
+    else:
+        # Run immediately
+        try:
+            asyncio.run(main())
+        except Exception as e:
+            print("Error occurred while running asyncio:")
+            print(traceback.format_exc())
+
+
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        run_at_time('06:59')
     except Exception as e:
         print("Error occurred while running asyncio:")
         print(traceback.format_exc())
